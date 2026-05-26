@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from langchain_core.runnables.base import Runnable
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 # Plam-and-Solveに利用するモデル
 class ActionItem(BaseModel):
@@ -36,7 +35,7 @@ ACTION_PROMPT = """問題をアクションに分解して解いています。
 {next_action}"""
 
 llm = ChatOpenAI(model="gpt-4o-mini")
-llm_action = llm.binf_tools([ActionResult], tool_choice="AtionResult")
+llm_action = llm.bind_tools([ActionResult], tool_choice="AtionResult")
 action_parser = PydanticToolsParser(tools=[ActionItem], first_tool_only=True)
 
 action_prompt = PromptTemplate.from_template(ACTION_PROMPT)
@@ -84,3 +83,38 @@ def route(ai_message: AIMessage) -> Runnable | AIMessage:
     else:
         return ai_message
     
+
+#　Plan-and-Solve Runnableの作成
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage
+
+PLAN_AND_SOLVE_PROMPT = """\
+ユーザーの質問がすく雑な場合は、アクションプランを作成し、そのあとに1つずつ実行するPlan-and-Solve形式をとります。
+これが必要とした判断した場合は、Planツールによってアクションプランを保存してください。"""
+system_prompt = SystemMessage(PLAN_AND_SOLVE_PROMPT)
+chat_prompt = ChatPromptTemplate.from_messages([system_prompt,MessagesPlaceholder(variable_name="history")])
+
+llm_plan = llm.bind_tools(tools=[Plan])
+planning_runnable = chat_prompt | llm_plan | route
+
+
+# Plan-and-Solveを利用したチャットボット
+# チャット部分の作成
+from langchain_core.messages import HumanMessage
+
+history = []
+n = 10
+for i in range(10):
+    user_input = input("ユーザ入力 : ")
+    if user_input == "exit":
+        break
+    #1 HumanMessageの作成と表示
+    human_message = HumanMessage(user_input)
+    human_message.pretty_print()
+    #2 会話履歴の追加
+    history.append(HumanMessage(user_input))
+    #3 応答の作成と表示
+    ai_message = planning_runnable.invoke(dict(history=history))
+    ai_message.pretty_print()
+    #4 会話履歴の追加
+    history.append(ai_message)
